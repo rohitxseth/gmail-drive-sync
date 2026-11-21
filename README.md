@@ -88,15 +88,6 @@ Drive folder: https://drive.google.com/drive/folders/...
 - Decrypt password-protected statements using per-bank password rules held in a vault, then parse the transactions into a database.
 - Add metrics and alerts (emails seen, files added, failures), plus a review queue for `_Needs review`.
 
-## Tests
-
-```
-pip install pytest
-pytest -q
-```
-
-The end-to-end tests run the sync through the real Gmail and Drive client objects, built from Google's published API definitions, with an in-memory mailbox and Drive behind them. They cover the folder layout, de-duplication on re-runs, dry runs, and one bad email not stopping the run.
-
 ## Demo
 
 Screen recording: <add link>

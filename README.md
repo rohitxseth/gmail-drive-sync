@@ -50,7 +50,7 @@ Drive folder: https://drive.google.com/drive/folders/...
 | Flag | What it does |
 | --- | --- |
 | `--dry-run` | Show what would be added; change nothing |
-| `--after 2025-01-01` | Only emails received after this date |
+| `--after 2025-01-01` | Only emails received on or after this date |
 | `--limit 20` | Process at most N emails |
 | `--query "..."` | Use your own Gmail search instead of the default |
 | `--root-folder "Statements"` | Drive folder name (default `Bank Statements`) |
@@ -71,7 +71,7 @@ Drive folder: https://drive.google.com/drive/folders/...
 - **Least-privilege access.** `gmail.readonly` can't change or delete mail. `drive.file` can only see the files and folders this tool created, not the rest of your Drive.
 - **Never drop silently.** Statement-like PDFs from unknown senders go to `_Needs review`.
 - **Idempotent.** De-duplication lives in Drive itself, so it works across machines and survives deleting local files.
-- **Resilient.** API calls retry on rate limits and server errors. One bad email is logged and skipped without stopping the run.
+- **Resilient.** API calls retry on rate limits and server errors. One bad email or attachment is logged and skipped without stopping the run.
 - **Banks are data.** To add a bank, add one line to `BANKS` in `statement_sync.py`.
 
 ## Limitations

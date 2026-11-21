@@ -1,5 +1,9 @@
 # Bank statements: Gmail → Google Drive
 
+![Demo: run the script, sign in with Google, statements filed in Drive](docs/demo.gif)
+
+Full screen recording (43 s): <https://drive.google.com/file/d/1XrNFk5w4g6X2hADdqhBMeJFZKpaNj9x9/view?usp=sharing>
+
 A command-line tool that finds bank-statement PDFs in your Gmail and files them in Google Drive:
 
 ```
@@ -87,10 +91,6 @@ Drive folder: https://drive.google.com/drive/folders/...
 - For a company's Google Workspace, replace the personal sign-in with a service account using domain-wide delegation, and keep secrets in a secret manager.
 - Decrypt password-protected statements using per-bank password rules held in a vault, then parse the transactions into a database.
 - Add metrics and alerts (emails seen, files added, failures), plus a review queue for `_Needs review`.
-
-## Demo
-
-Screen recording: <add link>
 
 ## How this was built
 

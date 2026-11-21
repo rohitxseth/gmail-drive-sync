@@ -26,6 +26,7 @@ DEFAULT_QUERY = ("has:attachment filename:pdf "
 DEFAULT_ROOT = "Bank Statements"
 REVIEW_FOLDER = "_Needs review"
 FOLDER_MIME = "application/vnd.google-apps.folder"
+RETRIES = 5
 
 # (Drive folder, sender domain labels, pattern for sender name / subject / file name).
 # The first match wins, so "SBI Card" comes before "SBI".
@@ -55,18 +56,19 @@ BANKS = [
 
 MONTHS = ("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec")
 
-# In order: 31-10-2025, 2025-10-31, Oct 2025 / 31-Oct-2025, 2025-10, 31102025
+# In order: 31-10-2025, 2025-10-31, Oct 2025 / 31-Oct-2025, 2025-10, 31102025 (or <digits>31102025)
 DATE_PATTERNS = [
     r"(?<!\d)\d{1,2}[-/.](?P<month>\d{1,2})[-/.](?P<year>20\d{2})(?!\d)",
     r"(?<!\d)(?P<year>20\d{2})[-/.](?P<month>\d{1,2})[-/.]\d{1,2}(?!\d)",
     r"\b(?P<month>jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*[\s\-/,.']*(?P<year>20\d{2})(?!\d)",
     r"(?<!\d)(?P<year>20\d{2})[-_](?P<month>0[1-9]|1[0-2])(?![\d\-/.])",
-    r"(?<!\d)(?:0[1-9]|[12]\d|3[01])(?P<month>0[1-9]|1[0-2])(?P<year>20\d{2})(?!\d)",
+    # ddmmyyyy, also when glued to the end of an account number (SBI names files <account><ddmmyyyy>.pdf)
+    r"(?:0[1-9]|[12]\d|3[01])(?P<month>0[1-9]|1[0-2])(?P<year>20\d{2})(?!\d)",
 ]
 
 
 def run(request):
-    return request.execute(num_retries=5)
+    return request.execute(num_retries=RETRIES)
 
 
 def detect_bank(sender, subject, filename):
@@ -154,7 +156,17 @@ def get_folder(files, name, parent):
     return find_folder(files, name, parent) or run(files.create(body=body, fields="id"))["id"]
 
 
-def sync(gmail, drive, query, root_name, dry_run, limit):
+def already_uploaded(files, sha256):
+    return find_id(files, f"appProperties has {{ key='sha256' and value='{sha256}' }} and trashed = false")
+
+
+def upload(files, parent, name, data, properties, description):
+    body = {"name": name, "parents": [parent], "appProperties": properties, "description": description}
+    media = MediaIoBaseUpload(io.BytesIO(data), mimetype="application/pdf")
+    run(files.create(body=body, media_body=media, fields="id"))
+
+
+def sync(gmail, drive, query=DEFAULT_QUERY, root_name=DEFAULT_ROOT, dry_run=False, limit=None):
     messages, files = gmail.users().messages(), drive.files()
     stats, seen, root_id = Counter(), set(), None
 
@@ -182,8 +194,7 @@ def sync(gmail, drive, query, root_name, dry_run, limit):
                 name = f"{year}-{month:02d} - {filename}"
                 path = f"{root_name}/{folder}/{year}/{name}"
 
-                in_drive = f"appProperties has {{ key='sha256' and value='{sha256}' }} and trashed = false"
-                if sha256 in seen or find_id(files, in_drive):
+                if sha256 in seen or already_uploaded(files, sha256):
                     stats["duplicates"] += 1
                     print(f"DUPLICATE {path} (skipped)")
                     continue
@@ -194,13 +205,12 @@ def sync(gmail, drive, query, root_name, dry_run, limit):
                     root_id = get_folder(files, root_name, "root")
                     parent = get_folder(files, str(year), get_folder(files, folder, root_id))
                     link = f"https://mail.google.com/mail/u/0/#all/{message_id}"
-                    body = {"name": name, "parents": [parent],
-                            "appProperties": {"sha256": sha256, "gmailMessageId": message_id},
-                            "description": f"From Gmail: {subject} | {sender} | {received:%Y-%m-%d} | {link}"}
-                    media = MediaIoBaseUpload(io.BytesIO(data), mimetype="application/pdf")
-                    run(files.create(body=body, media_body=media, fields="id"))
+                    upload(files, parent, name, data,
+                           properties={"sha256": sha256, "gmailMessageId": message_id},
+                           description=f"From Gmail: {subject} | {sender} | {received:%Y-%m-%d} | {link}")
                     print(f"ADDED     {path}")
 
+                # Only count a PDF once it is really uploaded, so a failed upload can be retried.
                 seen.add(sha256)
                 stats["uploaded"] += 1
                 stats["needs_review"] += not bank
@@ -220,10 +230,10 @@ def sync(gmail, drive, query, root_name, dry_run, limit):
     return stats["errors"]
 
 
-def get_credentials(args):
+def get_credentials(client_secrets, token_path, reauth, open_browser):
     creds = None
-    if args.token.exists() and not args.reauth:
-        creds = Credentials.from_authorized_user_file(args.token, SCOPES)
+    if token_path.exists() and not reauth:
+        creds = Credentials.from_authorized_user_file(token_path, SCOPES)
         if creds.expired and creds.refresh_token:
             try:
                 creds.refresh(Request())
@@ -232,13 +242,13 @@ def get_credentials(args):
                 creds = None
 
     if not creds or not creds.valid:
-        if not args.credentials.exists():
-            sys.exit(f"Missing {args.credentials}. Create a Desktop OAuth client in Google Cloud, "
+        if not client_secrets.exists():
+            sys.exit(f"Missing {client_secrets}. Create a Desktop OAuth client in Google Cloud, "
                      "download its JSON and save it there (see README.md).")
-        flow = InstalledAppFlow.from_client_secrets_file(args.credentials, SCOPES)
-        creds = flow.run_local_server(port=0, open_browser=not args.no_browser)
+        flow = InstalledAppFlow.from_client_secrets_file(client_secrets, SCOPES)
+        creds = flow.run_local_server(port=0, open_browser=open_browser)
 
-    args.token.write_text(creds.to_json())
+    token_path.write_text(creds.to_json())
     return creds
 
 
@@ -269,7 +279,7 @@ def parse_args():
 
 def main():
     args = parse_args()
-    creds = get_credentials(args)
+    creds = get_credentials(args.credentials, args.token, args.reauth, not args.no_browser)
     gmail = build("gmail", "v1", credentials=creds, cache_discovery=False)
     drive = build("drive", "v3", credentials=creds, cache_discovery=False)
 
